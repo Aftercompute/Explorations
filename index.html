@@ -2,16 +2,17 @@
 <html lang="sv">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Space Game</title>
     <style>
         * { margin: 0; padding: 0; }
-        html, body { overflow: hidden; width: 100%; height: 100%; background: #000; }
+        html, body { overflow: hidden; width: 100%; height: 100%; background: #000; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
         canvas { display: block; }
         #ui {
             position: fixed;
-            top: 20px;
-            left: 20px;
+            top: env(safe-area-inset-top, 12px);
+            left: 16px;
+            padding-top: 12px;
             color: #fff;
             font-family: 'Courier New', monospace;
             font-size: 14px;
@@ -36,17 +37,33 @@
         }
         #overlay h1 { font-size: 28px; font-weight: 300; margin-bottom: 16px; }
         #overlay p { font-size: 13px; opacity: 0.5; }
+        #desktop-msg {
+            position: fixed;
+            inset: 0;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            opacity: 0.5;
+            z-index: 100;
+            background: #000;
+        }
         .hidden { display: none !important; }
     </style>
 </head>
 <body>
+    <div id="desktop-msg">Mobile only</div>
     <div id="ui" class="hidden">
         <div id="score">0</div>
         <div id="lives"></div>
     </div>
     <div id="overlay">
         <h1>Space</h1>
-        <p>Click to start</p>
+        <p>Tap to start</p>
     </div>
     <script type="importmap">
         { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
@@ -54,12 +71,18 @@
     <script type="module">
         import * as THREE from 'three';
 
+        // --- Mobile detection ---
+        const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        if (!isMobile) {
+            document.getElementById('desktop-msg').style.display = 'flex';
+            document.getElementById('overlay').classList.add('hidden');
+        }
+
         // --- State ---
-        let state = 'menu'; // menu | playing | dead
+        let state = 'menu';
         let score = 0;
         let lives = 3;
-        const keys = {};
-        const mouse = { x: 0, y: 0 };
+        const touch = { active: false, x: 0, y: 0 };
         const bullets = [];
         const asteroids = [];
         const particles = [];
@@ -98,7 +121,7 @@
 
         // --- Starfield ---
         const starGeo = new THREE.BufferGeometry();
-        const starCount = 3000;
+        const starCount = 2000;
         const starPos = new Float32Array(starCount * 3);
         for (let i = 0; i < starCount * 3; i += 3) {
             starPos[i] = (Math.random() - 0.5) * 800;
@@ -113,21 +136,18 @@
         // --- Ship ---
         const shipGroup = new THREE.Group();
 
-        // Hull
         const hullGeo = new THREE.ConeGeometry(0.5, 2.2, 4);
         hullGeo.rotateX(Math.PI / 2);
         const hullMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, flatShading: true });
         const hull = new THREE.Mesh(hullGeo, hullMat);
         shipGroup.add(hull);
 
-        // Wings
         const wingGeo = new THREE.BoxGeometry(3, 0.06, 0.8);
         const wingMat = new THREE.MeshStandardMaterial({ color: 0x888899, flatShading: true });
         const wings = new THREE.Mesh(wingGeo, wingMat);
         wings.position.z = 0.4;
         shipGroup.add(wings);
 
-        // Engine glow
         const engineGeo = new THREE.SphereGeometry(0.2, 8, 8);
         const engineMat = new THREE.MeshBasicMaterial({ color: 0x4499ff });
         const engine = new THREE.Mesh(engineGeo, engineMat);
@@ -147,16 +167,30 @@
         ];
         const asteroidMat = new THREE.MeshStandardMaterial({ color: 0x555566, flatShading: true });
 
-        // --- Input ---
-        window.addEventListener('keydown', e => { keys[e.code] = true; });
-        window.addEventListener('keyup', e => { keys[e.code] = false; });
-        window.addEventListener('mousemove', e => {
-            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-        });
-        window.addEventListener('click', () => {
-            if (state === 'menu' || state === 'dead') startGame();
-        });
+        // --- Touch Input ---
+        window.addEventListener('touchstart', e => {
+            e.preventDefault();
+            if (state === 'menu' || state === 'dead') {
+                startGame();
+                return;
+            }
+            touch.active = true;
+            touch.x = e.touches[0].clientX;
+            touch.y = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchmove', e => {
+            e.preventDefault();
+            if (!touch.active) return;
+            touch.x = e.touches[0].clientX;
+            touch.y = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchend', e => {
+            e.preventDefault();
+            touch.active = false;
+        }, { passive: false });
+
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -173,7 +207,6 @@
             ui.classList.remove('hidden');
             updateUI();
 
-            // Clear existing
             bullets.forEach(b => scene.remove(b));
             bullets.length = 0;
             asteroids.forEach(a => scene.remove(a));
@@ -192,14 +225,14 @@
 
         function die() {
             lives--;
-            spawnExplosion(shipGroup.position.clone(), 0x4499ff, 30);
+            spawnExplosion(shipGroup.position.clone(), 0x4499ff, 20);
             updateUI();
             if (lives <= 0) {
                 state = 'dead';
                 shipGroup.visible = false;
                 ui.classList.add('hidden');
                 overlay.querySelector('h1').textContent = 'Game Over';
-                overlay.querySelector('p').textContent = 'Score: ' + score + '  \u00B7  Click to restart';
+                overlay.querySelector('p').textContent = 'Score: ' + score + '  \u00B7  Tap to restart';
                 overlay.classList.remove('hidden');
             }
         }
@@ -261,16 +294,15 @@
             stars.rotation.z += dt * 0.01;
 
             if (state === 'playing') {
-                // Ship movement
-                const speed = 15 * dt;
-                if (keys['ArrowLeft'] || keys['KeyA']) shipGroup.position.x -= speed;
-                if (keys['ArrowRight'] || keys['KeyD']) shipGroup.position.x += speed;
-                if (keys['ArrowUp'] || keys['KeyW']) shipGroup.position.y += speed;
-                if (keys['ArrowDown'] || keys['KeyS']) shipGroup.position.y -= speed;
-
-                // Mouse influence
-                shipGroup.position.x += (mouse.x * 14 - shipGroup.position.x) * 2 * dt;
-                shipGroup.position.y += (mouse.y * 8 - shipGroup.position.y) * 2 * dt;
+                // Touch steering - move ship toward finger position
+                if (touch.active) {
+                    const tx = (touch.x / window.innerWidth) * 2 - 1;
+                    const ty = -(touch.y / window.innerHeight) * 2 + 1;
+                    const targetX = tx * 16;
+                    const targetY = ty * 8;
+                    shipGroup.position.x += (targetX - shipGroup.position.x) * 5 * dt;
+                    shipGroup.position.y += (targetY - shipGroup.position.y) * 5 * dt;
+                }
 
                 // Clamp
                 shipGroup.position.x = THREE.MathUtils.clamp(shipGroup.position.x, -16, 16);
@@ -282,10 +314,10 @@
                 // Engine pulse
                 engine.scale.setScalar(0.8 + Math.sin(Date.now() * 0.01) * 0.3);
 
-                // Shooting
-                if (keys['Space'] || keys['KeyJ']) {
+                // Auto-shoot while touching
+                if (touch.active) {
                     const now = Date.now();
-                    if (now - lastShot > 150) {
+                    if (now - lastShot > 180) {
                         spawnBullet();
                         lastShot = now;
                     }
@@ -317,18 +349,16 @@
                     a.position.add(a.userData.vel);
                     a.rotateOnAxis(a.userData.rotAxis, a.userData.rotSpeed);
 
-                    // Remove if behind camera
                     if (a.position.z > 30) {
                         scene.remove(a);
                         asteroids.splice(i, 1);
                         continue;
                     }
 
-                    // Bullet collision
                     let hit = false;
                     for (let j = bullets.length - 1; j >= 0; j--) {
                         if (bullets[j].position.distanceTo(a.position) < a.userData.radius + 0.3) {
-                            spawnExplosion(a.position.clone(), 0x888899, 12);
+                            spawnExplosion(a.position.clone(), 0x888899, 10);
                             scene.remove(bullets[j]);
                             bullets.splice(j, 1);
                             scene.remove(a);
@@ -341,9 +371,8 @@
                     }
                     if (hit) continue;
 
-                    // Ship collision
                     if (a.position.distanceTo(shipGroup.position) < a.userData.radius + 0.7) {
-                        spawnExplosion(a.position.clone(), 0x888899, 12);
+                        spawnExplosion(a.position.clone(), 0x888899, 10);
                         scene.remove(a);
                         asteroids.splice(i, 1);
                         die();
@@ -363,9 +392,7 @@
                 }
             }
 
-            // Camera follow
             pointLight.position.copy(shipGroup.position).y += 3;
-
             renderer.render(scene, camera);
         }
 
