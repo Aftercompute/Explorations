@@ -94,10 +94,18 @@ window.addEventListener('resize', resize);
 // ── Game state ────────────────────────────────────────────────────
 let state = 'title'; // title | playing
 let shipX = 0;       // -1 to 1 (normalized screen position)
-let shipY = 0.2;     // -1 to 1
+let shipY = 0.5;     // 0 to 1 (altitude - start high)
+let targetX = 0;     // smoothed target for shipX
+let targetY = 0.5;   // smoothed target for shipY
 let speed = 0;
 let distance = 0;
 let camShake = 0;
+let bankAngle = 0;   // visual banking of the plane
+let pitchAngle = 0;  // visual pitch
+
+// Flight altitude (world units) - the plane flies at this height
+const FLIGHT_ALTITUDE = 14;
+const ALTITUDE_RANGE = 10; // how much shipY affects altitude
 
 // Touch
 let touchId = null;
@@ -108,10 +116,10 @@ let touchShipStartY = 0;
 
 // Buildings - stored as world-space objects
 const buildings = [];
-const ROAD_WIDTH = 12;
-const VIEW_DEPTH = 120;
-const BUILDING_SPAWN_INTERVAL = 8;
-let nextBuildingZ = 20;
+const CITY_WIDTH = 60;    // how wide the city spreads
+const VIEW_DEPTH = 140;
+const BUILDING_SPAWN_INTERVAL = 5;
+let nextBuildingZ = 15;
 
 // Stars
 const stars = [];
@@ -126,25 +134,47 @@ for (let i = 0; i < 120; i++) {
 
 // Horizon particles (flying particles for speed feel)
 const particles = [];
-for (let i = 0; i < 40; i++) {
+for (let i = 0; i < 60; i++) {
     particles.push({
-        x: (Math.random() - 0.5) * ROAD_WIDTH * 3,
-        y: Math.random() * 15,
+        x: (Math.random() - 0.5) * CITY_WIDTH,
+        y: Math.random() * 30,
         z: Math.random() * VIEW_DEPTH,
     });
 }
 
 // ── Building generation ───────────────────────────────────────────
 function generateBuilding(z) {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const laneOffset = ROAD_WIDTH / 2 + 1 + Math.random() * 8;
-    const w = 1.5 + Math.random() * 4;
-    const h = 4 + Math.random() * 20;
+    // Organic placement: buildings scattered across the city, not just along a road
+    // Use multiple placement strategies for variety
+    const strategy = Math.random();
+    let xPos;
+
+    if (strategy < 0.3) {
+        // Cluster near center (but leave a flight corridor)
+        const side = Math.random() < 0.5 ? -1 : 1;
+        xPos = side * (3 + Math.random() * 8);
+    } else if (strategy < 0.7) {
+        // Mid-range scattered
+        xPos = (Math.random() - 0.5) * CITY_WIDTH * 0.6;
+    } else {
+        // Far out buildings (skyline)
+        xPos = (Math.random() - 0.5) * CITY_WIDTH;
+    }
+
+    // Add organic jitter
+    xPos += (Math.random() - 0.5) * 4;
+    const zJitter = (Math.random() - 0.5) * 6;
+
+    const w = 1.5 + Math.random() * 5;
+    // Taller buildings in center, shorter at edges
+    const distFromCenter = Math.abs(xPos);
+    const heightBias = Math.max(0.3, 1 - distFromCenter / (CITY_WIDTH * 0.5));
+    const h = 4 + Math.random() * 28 * heightBias;
     const d = 2 + Math.random() * 5;
 
     const b = {
-        x: side * laneOffset + (Math.random() - 0.5) * 2,
-        z: z,
+        x: xPos,
+        z: z + zJitter,
         w: w,
         h: h,
         d: d,
@@ -180,32 +210,29 @@ function randomCityColor() {
     return colors[Math.floor(Math.random() * colors.length)];
 }
 
-// Pre-generate initial buildings
-for (let z = 20; z < VIEW_DEPTH; z += BUILDING_SPAWN_INTERVAL) {
-    // Multiple buildings per row
-    const count = 1 + Math.floor(Math.random() * 3);
+// Pre-generate initial buildings - scattered organically
+for (let z = 15; z < VIEW_DEPTH; z += BUILDING_SPAWN_INTERVAL) {
+    // 2-5 buildings per depth slice for a dense city feel
+    const count = 2 + Math.floor(Math.random() * 4);
     for (let i = 0; i < count; i++) {
         buildings.push(generateBuilding(z));
-    }
-    // Sometimes add buildings on both sides
-    if (Math.random() < 0.5) {
-        const b = generateBuilding(z);
-        b.x = -b.x; // flip side
-        buildings.push(b);
     }
 }
 nextBuildingZ = VIEW_DEPTH;
 
 // ── 3D projection ─────────────────────────────────────────────────
-const FOV = 300;
-const HORIZON_Y = 0.38; // normalized screen position of horizon
+const FOV = 350;
+const HORIZON_Y = 0.42; // normalized screen position of horizon
 
 function project(wx, wy, wz) {
     // wz = distance ahead of camera (always positive for visible)
     if (wz <= 0.5) return null;
     const scale = FOV / wz;
-    const sx = canvas.width / 2 + (wx - shipX * ROAD_WIDTH * 0.4) * scale;
-    const sy = canvas.height * HORIZON_Y - (wy - shipY * 2) * scale;
+    // Camera position based on ship controls
+    const camX = shipX * CITY_WIDTH * 0.15;
+    const camY = FLIGHT_ALTITUDE + shipY * ALTITUDE_RANGE;
+    const sx = canvas.width / 2 + (wx - camX) * scale;
+    const sy = canvas.height * HORIZON_Y - (wy - camY) * scale;
     return { x: sx, y: sy, scale: scale };
 }
 
@@ -302,109 +329,129 @@ function drawBuilding(b, camZ) {
 
 function drawShip() {
     const cx = canvas.width / 2;
-    const cy = canvas.height * 0.62;
-    const tilt = -shipX * 15; // visual tilt based on horizontal position
+    const cy = canvas.height * 0.58;
+
+    // Smooth banking animation
+    const targetBank = -shipX * 30;
+    bankAngle += (targetBank - bankAngle) * 0.08;
+    // Gentle pitch based on vertical movement
+    const targetPitch = (targetY - shipY) * 10;
+    pitchAngle += (targetPitch - pitchAngle) * 0.05;
 
     ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(tilt * Math.PI / 180);
+    ctx.translate(cx, cy + pitchAngle * 0.5);
+    ctx.rotate(bankAngle * Math.PI / 180);
 
-    const s = Math.min(canvas.width, canvas.height) * 0.04;
+    const s = Math.min(canvas.width, canvas.height) * 0.035;
 
+    // Paper airplane shadow/glow
+    ctx.shadowColor = '#0ff';
+    ctx.shadowBlur = 15;
+
+    // === Folded paper airplane ===
+    // Left wing (main fold)
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#0bf';
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 2.0);           // nose tip
+    ctx.lineTo(-s * 1.8, s * 0.6);     // left wing tip
+    ctx.lineTo(-s * 0.15, s * 0.3);    // left inner fold
+    ctx.lineTo(0, s * 1.0);            // tail
+    ctx.closePath();
+    ctx.fill();
     ctx.globalAlpha = 0.9;
     ctx.strokeStyle = '#0ff';
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = '#0ff';
-    ctx.shadowBlur = 10;
-
-    // Main body - triangle
-    ctx.beginPath();
-    ctx.moveTo(0, -s * 1.8);
-    ctx.lineTo(-s * 1.2, s * 1.0);
-    ctx.lineTo(-s * 0.3, s * 0.6);
-    ctx.lineTo(0, s * 1.2);
-    ctx.lineTo(s * 0.3, s * 0.6);
-    ctx.lineTo(s * 1.2, s * 1.0);
-    ctx.closePath();
+    ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Cockpit line
+    // Right wing (main fold)
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = '#089';
     ctx.beginPath();
-    ctx.moveTo(0, -s * 1.0);
-    ctx.lineTo(-s * 0.25, s * 0.1);
-    ctx.lineTo(s * 0.25, s * 0.1);
+    ctx.moveTo(0, -s * 2.0);           // nose tip
+    ctx.lineTo(s * 1.8, s * 0.6);      // right wing tip
+    ctx.lineTo(s * 0.15, s * 0.3);     // right inner fold
+    ctx.lineTo(0, s * 1.0);            // tail
     ctx.closePath();
-    ctx.strokeStyle = '#08f';
-    ctx.globalAlpha = 0.6;
+    ctx.fill();
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = '#0ff';
+    ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Engine glow
-    const flicker = 0.7 + Math.sin(Date.now() * 0.02) * 0.3;
-    ctx.globalAlpha = flicker * 0.5;
-    ctx.strokeStyle = '#48f';
-    ctx.lineWidth = 2;
+    // Center fold line (the crease of the paper)
     ctx.beginPath();
-    ctx.moveTo(-s * 0.3, s * 0.8);
-    ctx.lineTo(0, s * 1.6 + Math.random() * s * 0.3);
-    ctx.lineTo(s * 0.3, s * 0.8);
+    ctx.moveTo(0, -s * 2.0);
+    ctx.lineTo(0, s * 1.0);
+    ctx.strokeStyle = '#fff';
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Small fold detail on wings
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 1.2);
+    ctx.lineTo(-s * 0.8, s * 0.4);
+    ctx.strokeStyle = '#0af';
+    ctx.globalAlpha = 0.3;
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 1.2);
+    ctx.lineTo(s * 0.8, s * 0.4);
     ctx.stroke();
 
     ctx.shadowBlur = 0;
     ctx.restore();
 }
 
-function drawRoad(camZ) {
-    // Ground grid lines going into the distance
-    const gridSpacing = 6;
-    const numLines = 20;
+function drawCityGround(camZ) {
+    // City block grid on the ground - seen from above while flying
+    const gridSpacing = 8;
+    const numLines = 25;
+    const citySpread = CITY_WIDTH * 0.8;
 
-    // Horizontal ground lines
+    // Horizontal ground lines (streets running left-right)
     for (let i = 1; i <= numLines; i++) {
         const z = (i * gridSpacing) - (camZ % gridSpacing);
-        const left = project(-ROAD_WIDTH * 2, 0, z);
-        const right = project(ROAD_WIDTH * 2, 0, z);
+        if (z < 1) continue;
+        const left = project(-citySpread, 0, z);
+        const right = project(citySpread, 0, z);
         if (left && right) {
             const fade = 1 - i / numLines;
-            drawLine(left.x, left.y, right.x, right.y, '#224', fade * 0.3, 1);
+            drawLine(left.x, left.y, right.x, right.y, '#182038', fade * 0.4, 1);
         }
     }
 
-    // Road edge lines (two parallel lines going into distance)
-    const steps = 40;
-    for (let side = -1; side <= 1; side += 2) {
-        ctx.strokeStyle = '#0af';
+    // Vertical ground lines (streets running into distance)
+    const streetPositions = [];
+    for (let x = -citySpread; x <= citySpread; x += 10) {
+        streetPositions.push(x + (Math.sin(x * 0.3) * 2)); // slight organic offset
+    }
+
+    const steps = 30;
+    for (const streetX of streetPositions) {
+        ctx.strokeStyle = '#182038';
         ctx.lineWidth = 1;
         ctx.beginPath();
         let started = false;
 
         for (let i = 0; i <= steps; i++) {
-            const z = 2 + (i / steps) * VIEW_DEPTH;
-            const p = project(side * ROAD_WIDTH / 2, 0, z);
+            const z = 3 + (i / steps) * VIEW_DEPTH;
+            const p = project(streetX, 0, z);
             if (p) {
                 const fade = 1 - i / steps;
+                ctx.globalAlpha = fade * 0.3;
                 if (!started) {
                     ctx.moveTo(p.x, p.y);
                     started = true;
                 } else {
-                    ctx.globalAlpha = fade * 0.5;
                     ctx.lineTo(p.x, p.y);
                 }
             }
         }
         ctx.stroke();
-    }
-
-    // Center dashed line
-    for (let i = 0; i < 20; i++) {
-        const z1 = (i * 6 + 2) - (camZ % 6);
-        const z2 = z1 + 3;
-        if (z1 < 1) continue;
-        const p1 = project(0, 0, z1);
-        const p2 = project(0, 0, z2);
-        if (p1 && p2) {
-            const fade = 1 - z1 / VIEW_DEPTH;
-            drawLine(p1.x, p1.y, p2.x, p2.y, '#046', fade * 0.4, 1);
-        }
     }
 }
 
@@ -445,7 +492,8 @@ function drawHUD() {
 
     // Altitude indicator
     ctx.textAlign = 'center';
-    ctx.fillText('ALT ' + Math.floor((1 - shipY) * 100), canvas.width / 2, 24);
+    const alt = Math.floor(FLIGHT_ALTITUDE + shipY * ALTITUDE_RANGE);
+    ctx.fillText('ALT ' + alt, canvas.width / 2, 24);
 }
 
 function drawScanlines() {
@@ -490,7 +538,7 @@ function render() {
     ctx.globalAlpha = 1;
 
     drawStars(distance);
-    drawRoad(distance);
+    drawCityGround(distance);
     drawParticles(distance);
 
     // Sort buildings by distance (far first)
@@ -518,18 +566,19 @@ function update() {
 
     distance += speed;
 
+    // Smooth steering - lerp ship position towards target
+    const lerpSpeed = 0.06;
+    shipX += (targetX - shipX) * lerpSpeed;
+    shipY += (targetY - shipY) * lerpSpeed;
+
     // Spawn new buildings as we move forward
     while (nextBuildingZ < distance + VIEW_DEPTH) {
-        const count = 1 + Math.floor(Math.random() * 3);
+        // Dense city: 3-6 buildings per depth slice
+        const count = 3 + Math.floor(Math.random() * 4);
         for (let i = 0; i < count; i++) {
             buildings.push(generateBuilding(nextBuildingZ));
         }
-        if (Math.random() < 0.6) {
-            const b = generateBuilding(nextBuildingZ);
-            b.x = -b.x;
-            buildings.push(b);
-        }
-        nextBuildingZ += BUILDING_SPAWN_INTERVAL * (0.6 + Math.random() * 0.8);
+        nextBuildingZ += BUILDING_SPAWN_INTERVAL * (0.5 + Math.random() * 0.8);
     }
 
     // Remove old buildings far behind
@@ -540,7 +589,7 @@ function update() {
     }
 
     // Flicker random windows occasionally
-    if (Math.random() < 0.02) {
+    if (Math.random() < 0.03) {
         const b = buildings[Math.floor(Math.random() * buildings.length)];
         if (b && b.windows.length > 0) {
             const w = b.windows[Math.floor(Math.random() * b.windows.length)];
@@ -569,8 +618,8 @@ canvas.addEventListener('touchstart', e => {
         touchId = t.identifier;
         touchStartX = t.clientX;
         touchStartY = t.clientY;
-        touchShipStartX = shipX;
-        touchShipStartY = shipY;
+        touchShipStartX = targetX;
+        touchShipStartY = targetY;
     }
 }, { passive: false });
 
@@ -578,10 +627,10 @@ canvas.addEventListener('touchmove', e => {
     e.preventDefault();
     for (const t of e.changedTouches) {
         if (t.identifier === touchId) {
-            const dx = (t.clientX - touchStartX) / (canvas.width * 0.3);
-            const dy = (t.clientY - touchStartY) / (canvas.height * 0.3);
-            shipX = Math.max(-1, Math.min(1, touchShipStartX + dx));
-            shipY = Math.max(-0.5, Math.min(1, touchShipStartY + dy));
+            const dx = (t.clientX - touchStartX) / (canvas.width * 0.25);
+            const dy = (t.clientY - touchStartY) / (canvas.height * 0.25);
+            targetX = Math.max(-1, Math.min(1, touchShipStartX + dx));
+            targetY = Math.max(-0.5, Math.min(1, touchShipStartY - dy));
         }
     }
 }, { passive: false });
@@ -608,16 +657,16 @@ canvas.addEventListener('mousedown', e => {
     mouseDown = true;
     mouseStartX = e.clientX;
     mouseStartY = e.clientY;
-    mouseShipStartX = shipX;
-    mouseShipStartY = shipY;
+    mouseShipStartX = targetX;
+    mouseShipStartY = targetY;
 });
 
 canvas.addEventListener('mousemove', e => {
     if (!mouseDown) return;
-    const dx = (e.clientX - mouseStartX) / (canvas.width * 0.3);
-    const dy = (e.clientY - mouseStartY) / (canvas.height * 0.3);
-    shipX = Math.max(-1, Math.min(1, mouseShipStartX + dx));
-    shipY = Math.max(-0.5, Math.min(1, mouseShipStartY + dy));
+    const dx = (e.clientX - mouseStartX) / (canvas.width * 0.25);
+    const dy = (e.clientY - mouseStartY) / (canvas.height * 0.25);
+    targetX = Math.max(-1, Math.min(1, mouseShipStartX + dx));
+    targetY = Math.max(-0.5, Math.min(1, mouseShipStartY - dy));
 });
 
 canvas.addEventListener('mouseup', () => { mouseDown = false; });
