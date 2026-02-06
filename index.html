@@ -2,23 +2,733 @@
 <html lang="sv">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Under construction</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>VOID RUNNER</title>
     <style>
-        body {
-            margin: 0;
-            height: 100vh;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #000;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        canvas { display: block; }
+        #ui {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            pointer-events: none;
+            z-index: 10;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+        }
+        #hud {
             display: flex;
+            justify-content: space-between;
+            padding: 16px 20px;
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            opacity: 0.7;
+        }
+        #title-screen {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            background-color: #000;
+            z-index: 20;
+            font-family: 'Courier New', monospace;
             color: #fff;
-            font-family: sans-serif;
-            font-size: 2rem;
+            background: rgba(0,0,0,0.85);
+            transition: opacity 0.8s;
+        }
+        #title-screen h1 {
+            font-size: 32px;
+            letter-spacing: 12px;
+            font-weight: 300;
+            margin-bottom: 8px;
+        }
+        #title-screen .sub {
+            font-size: 10px;
+            letter-spacing: 4px;
+            opacity: 0.4;
+            margin-bottom: 48px;
+        }
+        #title-screen .start {
+            font-size: 13px;
+            letter-spacing: 4px;
+            opacity: 0.6;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        #title-screen .controls {
+            position: absolute;
+            bottom: 40px;
+            font-size: 10px;
+            letter-spacing: 1px;
+            opacity: 0.3;
+            text-align: center;
+            line-height: 2;
+            padding: 0 24px;
+        }
+        #game-over {
+            position: fixed;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+            background: rgba(0,0,0,0.85);
+        }
+        #game-over h2 {
+            font-size: 28px;
+            letter-spacing: 10px;
+            font-weight: 300;
+            margin-bottom: 16px;
+        }
+        #game-over .final-score {
+            font-size: 12px;
+            letter-spacing: 4px;
+            opacity: 0.5;
+            margin-bottom: 48px;
+        }
+        #game-over .restart {
+            font-size: 13px;
+            letter-spacing: 4px;
+            opacity: 0.6;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        /* Touch joystick zone indicators */
+        #touch-zones {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 40vh;
+            pointer-events: none;
+            z-index: 5;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 20px 24px;
+        }
+        .zone-hint {
+            font-family: 'Courier New', monospace;
+            font-size: 9px;
+            letter-spacing: 2px;
+            color: #fff;
+            opacity: 0;
+            text-transform: uppercase;
+            transition: opacity 0.5s;
+        }
+        .zone-hint.visible { opacity: 0.2; }
+        #joystick-ring {
+            position: fixed;
+            width: 100px;
+            height: 100px;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 15;
+            display: none;
+        }
+        #joystick-knob {
+            position: absolute;
+            width: 36px;
+            height: 36px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 50%;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
         }
     </style>
 </head>
 <body>
-    <h1>Under construction</h1>
+
+<div id="ui">
+    <div id="hud">
+        <span id="score-display">SCORE 0</span>
+        <span id="shield-display">SHIELD ███████████</span>
+    </div>
+</div>
+
+<div id="touch-zones">
+    <div class="zone-hint" id="hint-move">DRAG TO STEER</div>
+    <div class="zone-hint" id="hint-fire">TAP TO FIRE</div>
+</div>
+
+<div id="joystick-ring">
+    <div id="joystick-knob"></div>
+</div>
+
+<div id="title-screen">
+    <h1>VOID RUNNER</h1>
+    <div class="sub">A SPACE SURVIVAL EXPERIENCE</div>
+    <div class="start">TAP TO LAUNCH</div>
+    <div class="controls">
+        LEFT SIDE — DRAG TO STEER<br>
+        RIGHT SIDE — TAP TO FIRE
+    </div>
+</div>
+
+<div id="game-over">
+    <h2>SIGNAL LOST</h2>
+    <div class="final-score" id="final-score">SCORE 0</div>
+    <div class="restart">TAP TO RELAUNCH</div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ── State ──────────────────────────────────────────────────────────
+let gameState = 'title'; // title | playing | over
+let score = 0;
+let shield = 100;
+let speed = 0.08;
+let elapsed = 0;
+
+const bullets = [];
+const asteroids = [];
+const explosions = [];
+
+// Touch state
+let steerTouchId = null;
+let steerOrigin = { x: 0, y: 0 };
+let steerDelta = { x: 0, y: 0 };
+let fireTouchActive = false;
+let fireInterval = null;
+
+const joystickRing = document.getElementById('joystick-ring');
+const joystickKnob = document.getElementById('joystick-knob');
+
+// ── Renderer ───────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+// ── Scene ──────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000008, 0.0015);
+
+// ── Camera ─────────────────────────────────────────────────────────
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 2000);
+camera.position.set(0, 14, 26);
+camera.lookAt(0, 0, 0);
+
+// ── Lights ─────────────────────────────────────────────────────────
+const ambient = new THREE.AmbientLight(0x222244, 0.8);
+scene.add(ambient);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+dirLight.position.set(10, 20, 15);
+scene.add(dirLight);
+
+const pointLight = new THREE.PointLight(0x4488ff, 2, 80);
+pointLight.position.set(0, 5, 0);
+scene.add(pointLight);
+
+// ── Starfield ──────────────────────────────────────────────────────
+function createStarfield() {
+    const geo = new THREE.BufferGeometry();
+    const count = 2000;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+        positions[i * 3] = (Math.random() - 0.5) * 1200;
+        positions[i * 3 + 1] = (Math.random() - 0.5) * 600;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 1200;
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const mat = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 1.8,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.8,
+    });
+    const points = new THREE.Points(geo, mat);
+    scene.add(points);
+    return points;
+}
+const starfield = createStarfield();
+
+// ── Nebula ─────────────────────────────────────────────────────────
+function createNebula() {
+    const group = new THREE.Group();
+    const colors = [0x220044, 0x002244, 0x441122];
+    for (let i = 0; i < 5; i++) {
+        const geo = new THREE.IcosahedronGeometry(60 + Math.random() * 80, 1);
+        const mat = new THREE.MeshBasicMaterial({
+            color: colors[i % colors.length],
+            transparent: true,
+            opacity: 0.06,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(
+            (Math.random() - 0.5) * 500,
+            (Math.random() - 0.5) * 200,
+            -300 - Math.random() * 300
+        );
+        mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+        group.add(mesh);
+    }
+    scene.add(group);
+}
+createNebula();
+
+// ── Ship ───────────────────────────────────────────────────────────
+function createShip() {
+    const group = new THREE.Group();
+
+    // Hull
+    const hullGeo = new THREE.ConeGeometry(0.5, 2.5, 4);
+    const hullMat = new THREE.MeshStandardMaterial({
+        color: 0xcccccc, metalness: 0.8, roughness: 0.2, flatShading: true,
+    });
+    const hull = new THREE.Mesh(hullGeo, hullMat);
+    hull.rotation.x = Math.PI / 2;
+    group.add(hull);
+
+    // Wings
+    const wingGeo = new THREE.BoxGeometry(3.5, 0.05, 1.2);
+    const wingMat = new THREE.MeshStandardMaterial({
+        color: 0x888899, metalness: 0.7, roughness: 0.3, flatShading: true,
+    });
+    const wings = new THREE.Mesh(wingGeo, wingMat);
+    wings.position.z = 0.4;
+    group.add(wings);
+
+    // Engine glow
+    const engineGeo = new THREE.SphereGeometry(0.25, 8, 8);
+    const engineMat = new THREE.MeshBasicMaterial({ color: 0x4488ff });
+    const engine = new THREE.Mesh(engineGeo, engineMat);
+    engine.position.z = 1.3;
+    engine.name = 'engine';
+    group.add(engine);
+
+    // Engine light
+    const eLight = new THREE.PointLight(0x4488ff, 3, 8);
+    eLight.position.z = 1.5;
+    group.add(eLight);
+
+    group.position.y = 0.5;
+    scene.add(group);
+    return group;
+}
+const ship = createShip();
+
+// ── Grid floor ─────────────────────────────────────────────────────
+function createGrid() {
+    const gridGeo = new THREE.PlaneGeometry(400, 400, 60, 60);
+    const gridMat = new THREE.MeshBasicMaterial({
+        color: 0x1a1a3a, wireframe: true, transparent: true, opacity: 0.08,
+    });
+    const grid = new THREE.Mesh(gridGeo, gridMat);
+    grid.rotation.x = -Math.PI / 2;
+    grid.position.y = -5;
+    scene.add(grid);
+    return grid;
+}
+const grid = createGrid();
+
+// ── Asteroid factory ──────────────────────────────────────────────
+function spawnAsteroid() {
+    const size = 0.5 + Math.random() * 2.5;
+    const detail = Math.floor(Math.random() * 2) + 1;
+    const geo = new THREE.IcosahedronGeometry(size, detail);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+        const offset = (Math.random() - 0.5) * size * 0.4;
+        pos.setX(i, pos.getX(i) + offset);
+        pos.setY(i, pos.getY(i) + offset);
+        pos.setZ(i, pos.getZ(i) + offset);
+    }
+    geo.computeVertexNormals();
+
+    const shade = 0.15 + Math.random() * 0.15;
+    const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(shade, shade * 0.9, shade * 0.85),
+        metalness: 0.3, roughness: 0.9, flatShading: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+
+    const angle = (Math.random() - 0.5) * Math.PI * 0.6;
+    const dist = 80 + Math.random() * 40;
+    mesh.position.set(
+        Math.sin(angle) * dist + ship.position.x,
+        (Math.random() - 0.5) * 10,
+        -dist + ship.position.z
+    );
+
+    mesh.userData = {
+        speed: 0.15 + Math.random() * speed * 3,
+        rotSpeed: new THREE.Vector3(
+            (Math.random() - 0.5) * 0.03,
+            (Math.random() - 0.5) * 0.03,
+            (Math.random() - 0.5) * 0.03
+        ),
+        size,
+    };
+
+    scene.add(mesh);
+    asteroids.push(mesh);
+}
+
+// ── Bullet factory ────────────────────────────────────────────────
+function fireBullet() {
+    const geo = new THREE.SphereGeometry(0.1, 6, 6);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x88ccff });
+    const bullet = new THREE.Mesh(geo, mat);
+
+    bullet.position.copy(ship.position);
+    bullet.position.y += 0.5;
+
+    const dir = new THREE.Vector3(steerDelta.x * 0.15, 0, -1).normalize();
+    bullet.userData = {
+        velocity: dir.multiplyScalar(2.0),
+        life: 120,
+    };
+
+    const light = new THREE.PointLight(0x88ccff, 1, 6);
+    bullet.add(light);
+
+    scene.add(bullet);
+    bullets.push(bullet);
+}
+
+// ── Explosion effect ──────────────────────────────────────────────
+function createExplosion(position, size) {
+    const count = 10 + Math.floor(size * 6);
+    const group = new THREE.Group();
+    group.position.copy(position);
+
+    for (let i = 0; i < count; i++) {
+        const geo = new THREE.TetrahedronGeometry(0.1 + Math.random() * 0.15 * size);
+        const mat = new THREE.MeshBasicMaterial({
+            color: new THREE.Color().setHSL(0.08 + Math.random() * 0.1, 0.8, 0.5 + Math.random() * 0.3),
+            transparent: true, opacity: 1,
+        });
+        const piece = new THREE.Mesh(geo, mat);
+        piece.userData.velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 0.5,
+            (Math.random() - 0.5) * 0.5,
+            (Math.random() - 0.5) * 0.5
+        );
+        group.add(piece);
+    }
+
+    const flash = new THREE.PointLight(0xffaa44, 5 * size, 15);
+    group.add(flash);
+    group.userData = { life: 40, flash };
+
+    scene.add(group);
+    explosions.push(group);
+}
+
+// ── Touch controls ────────────────────────────────────────────────
+const screenMid = () => window.innerWidth / 2;
+
+window.addEventListener('touchstart', e => {
+    e.preventDefault();
+
+    if (gameState === 'title') { startGame(); return; }
+    if (gameState === 'over') { resetGame(); return; }
+
+    for (const touch of e.changedTouches) {
+        if (touch.clientX < screenMid()) {
+            // Left side: steering joystick
+            if (steerTouchId === null) {
+                steerTouchId = touch.identifier;
+                steerOrigin.x = touch.clientX;
+                steerOrigin.y = touch.clientY;
+                steerDelta.x = 0;
+                steerDelta.y = 0;
+
+                // Show joystick
+                joystickRing.style.display = 'block';
+                joystickRing.style.left = (touch.clientX - 50) + 'px';
+                joystickRing.style.top = (touch.clientY - 50) + 'px';
+                joystickKnob.style.transform = 'translate(-50%, -50%)';
+            }
+        } else {
+            // Right side: fire
+            fireTouchActive = true;
+            fireBullet();
+            if (!fireInterval) {
+                fireInterval = setInterval(() => {
+                    if (fireTouchActive && gameState === 'playing') fireBullet();
+                }, 100);
+            }
+        }
+    }
+}, { passive: false });
+
+window.addEventListener('touchmove', e => {
+    e.preventDefault();
+
+    for (const touch of e.changedTouches) {
+        if (touch.identifier === steerTouchId) {
+            const dx = touch.clientX - steerOrigin.x;
+            const dy = touch.clientY - steerOrigin.y;
+            const maxRadius = 50;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const clampedDist = Math.min(dist, maxRadius);
+            const angle = Math.atan2(dy, dx);
+
+            steerDelta.x = (Math.cos(angle) * clampedDist) / maxRadius;
+            steerDelta.y = (Math.sin(angle) * clampedDist) / maxRadius;
+
+            // Update joystick knob position
+            const knobX = steerDelta.x * 30;
+            const knobY = steerDelta.y * 30;
+            joystickKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+        }
+    }
+}, { passive: false });
+
+window.addEventListener('touchend', e => {
+    for (const touch of e.changedTouches) {
+        if (touch.identifier === steerTouchId) {
+            steerTouchId = null;
+            steerDelta.x = 0;
+            steerDelta.y = 0;
+            joystickRing.style.display = 'none';
+        }
+        if (touch.clientX >= screenMid()) {
+            fireTouchActive = false;
+            if (fireInterval) {
+                clearInterval(fireInterval);
+                fireInterval = null;
+            }
+        }
+    }
+});
+
+window.addEventListener('touchcancel', e => {
+    steerTouchId = null;
+    steerDelta.x = 0;
+    steerDelta.y = 0;
+    fireTouchActive = false;
+    joystickRing.style.display = 'none';
+    if (fireInterval) { clearInterval(fireInterval); fireInterval = null; }
+});
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Game flow ─────────────────────────────────────────────────────
+function startGame() {
+    gameState = 'playing';
+    document.getElementById('title-screen').style.opacity = '0';
+    setTimeout(() => {
+        document.getElementById('title-screen').style.display = 'none';
+    }, 800);
+
+    // Show touch hints briefly
+    document.getElementById('hint-move').classList.add('visible');
+    document.getElementById('hint-fire').classList.add('visible');
+    setTimeout(() => {
+        document.getElementById('hint-move').classList.remove('visible');
+        document.getElementById('hint-fire').classList.remove('visible');
+    }, 3000);
+}
+
+function resetGame() {
+    asteroids.forEach(a => scene.remove(a));
+    asteroids.length = 0;
+    bullets.forEach(b => scene.remove(b));
+    bullets.length = 0;
+    explosions.forEach(e => scene.remove(e));
+    explosions.length = 0;
+
+    ship.position.set(0, 0.5, 0);
+    score = 0;
+    shield = 100;
+    speed = 0.08;
+    elapsed = 0;
+    gameState = 'playing';
+
+    document.getElementById('game-over').style.display = 'none';
+    updateHUD();
+}
+
+function gameOver() {
+    gameState = 'over';
+    fireTouchActive = false;
+    if (fireInterval) { clearInterval(fireInterval); fireInterval = null; }
+    document.getElementById('final-score').textContent = `SCORE ${score}`;
+    document.getElementById('game-over').style.display = 'flex';
+}
+
+function updateHUD() {
+    document.getElementById('score-display').textContent = `SCORE ${score}`;
+    const blocks = Math.max(0, Math.floor(shield / 9));
+    const bar = '\u2588'.repeat(blocks) + '\u2591'.repeat(11 - blocks);
+    document.getElementById('shield-display').textContent = `SHIELD ${bar}`;
+}
+
+// ── Game loop ─────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    elapsed += delta;
+
+    if (gameState === 'playing') {
+        updateGame(delta);
+    }
+
+    starfield.rotation.y += 0.0001;
+    grid.position.z = ship.position.z;
+
+    renderer.render(scene, camera);
+}
+
+function updateGame(delta) {
+    // ── Ship movement via touch joystick ──────────────────────
+    const moveSpeed = 20 * delta;
+    ship.position.x += steerDelta.x * moveSpeed;
+    ship.position.z += steerDelta.y * moveSpeed * 0.5;
+
+    // Clamp horizontal
+    ship.position.x = THREE.MathUtils.clamp(ship.position.x, -20, 20);
+
+    // Ship tilt
+    ship.rotation.z = THREE.MathUtils.lerp(ship.rotation.z, -steerDelta.x * 0.5, 0.1);
+
+    // Forward drift (auto)
+    ship.position.z -= speed * 60 * delta;
+    speed += 0.00003 * delta;
+
+    // Camera follow
+    camera.position.x = THREE.MathUtils.lerp(camera.position.x, ship.position.x * 0.5, 0.04);
+    camera.position.z = ship.position.z + 26;
+    camera.position.y = 14;
+    camera.lookAt(ship.position.x * 0.3, 0, ship.position.z - 10);
+
+    pointLight.position.set(ship.position.x, 5, ship.position.z);
+
+    // ── Spawn asteroids ────────────────────────────────────────
+    if (Math.random() < 0.04 + elapsed * 0.002) {
+        spawnAsteroid();
+    }
+
+    // ── Update bullets ─────────────────────────────────────────
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.position.add(b.userData.velocity);
+        b.userData.life--;
+        if (b.userData.life <= 0) {
+            scene.remove(b);
+            bullets.splice(i, 1);
+        }
+    }
+
+    // ── Update asteroids ───────────────────────────────────────
+    for (let i = asteroids.length - 1; i >= 0; i--) {
+        const a = asteroids[i];
+        a.position.z += a.userData.speed;
+        a.rotation.x += a.userData.rotSpeed.x;
+        a.rotation.y += a.userData.rotSpeed.y;
+        a.rotation.z += a.userData.rotSpeed.z;
+
+        if (a.position.z > camera.position.z + 20) {
+            scene.remove(a);
+            asteroids.splice(i, 1);
+            continue;
+        }
+
+        // Bullet collision
+        let hit = false;
+        for (let j = bullets.length - 1; j >= 0; j--) {
+            const b = bullets[j];
+            const dist = b.position.distanceTo(a.position);
+            if (dist < a.userData.size + 0.5) {
+                createExplosion(a.position.clone(), a.userData.size);
+                scene.remove(a);
+                asteroids.splice(i, 1);
+                scene.remove(b);
+                bullets.splice(j, 1);
+                score += Math.floor(a.userData.size * 10);
+                updateHUD();
+                hit = true;
+                break;
+            }
+        }
+        if (hit) continue;
+
+        // Ship collision
+        const shipDist = ship.position.distanceTo(a.position);
+        if (shipDist < a.userData.size + 1.2) {
+            createExplosion(a.position.clone(), a.userData.size);
+            scene.remove(a);
+            asteroids.splice(i, 1);
+            shield -= 15 + a.userData.size * 5;
+            updateHUD();
+            if (shield <= 0) {
+                createExplosion(ship.position.clone(), 3);
+                gameOver();
+            }
+        }
+    }
+
+    // ── Update explosions ──────────────────────────────────────
+    for (let i = explosions.length - 1; i >= 0; i--) {
+        const e = explosions[i];
+        e.userData.life--;
+        const t = e.userData.life / 40;
+
+        if (e.userData.flash) {
+            e.userData.flash.intensity = t * 5;
+        }
+
+        e.children.forEach(child => {
+            if (child.userData.velocity) {
+                child.position.add(child.userData.velocity);
+                child.userData.velocity.multiplyScalar(0.96);
+                if (child.material) child.material.opacity = t;
+            }
+        });
+
+        if (e.userData.life <= 0) {
+            scene.remove(e);
+            explosions.splice(i, 1);
+        }
+    }
+
+    // ── Engine glow pulse ──────────────────────────────────────
+    const engine = ship.getObjectByName('engine');
+    if (engine) {
+        engine.scale.setScalar(0.8 + Math.sin(elapsed * 10) * 0.3);
+    }
+}
+
+// ── Start ─────────────────────────────────────────────────────────
+animate();
+</script>
+
 </body>
 </html>
